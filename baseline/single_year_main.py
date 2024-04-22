@@ -50,7 +50,7 @@ parser.add_argument('-z_dim', "--z_dim", default=64, type=int, help='hidden unit
 
 parser.add_argument('-keep_prob', "--keep_prob", default=1.0, type=float, help='1.-drop out rate')
 parser.add_argument('-mode', "--mode", type=str, help='training/test mode')
-parser.add_argument('-model', "--model", type=str, help='model type', choices=['mlp', 'cnn', 'lstm', 'gru'])
+parser.add_argument('-model', "--model", type=str, help='model type', choices=['mlp', 'cnn', 'lstm', 'gru', 'transformer'])
 parser.add_argument('-sche', "--scheduler", default='cosine', choices=['cosine', 'step', 'plateau', 'exp'], help='lr scheduler')
 parser.add_argument('-exp_gamma', "--exp_gamma", default=0.98, type=float, help='exp lr decay gamma')
 

@@ -20,7 +20,7 @@ do
                     -lr $lr --sche cosine --T0 100 --eta_min 1e-6 --check_freq 80  \
                     --T_mult 2 --lrsteps 25 --gamma 1 \
                     --dropout 0.1 --z_dim 64 --weight_decay 1e-5 \
-                    --no_management --aggregator_type pool --encoder_type cnn --seed $seed 
+                    --no_management --aggregator_type pool --encoder_type transformer --seed $seed 
             done
         done
     done

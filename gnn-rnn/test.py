@@ -5,7 +5,7 @@ from time import time
 import torch
 import torch.nn.functional as F
 from torch import nn, optim
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 import sys
@@ -19,8 +19,6 @@ from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import dgl
 import scipy.sparse as sp
-sys.path.append('../cnn-rnn')  # HACK
-import visualization_utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sys.path.append('./')
@@ -31,7 +29,6 @@ huber_fn = nn.SmoothL1Loss()
 best_test = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 
-# TODO - currently only supports single label (predictions and Y are flattened)
 def eval(pred, Y, args):
     Y = (Y - args.means) / args.stds
     pred = (pred - args.means) / args.stds
@@ -44,9 +41,6 @@ def eval(pred, Y, args):
     if Y.shape[0] < 2:
         print("Not enough valid labels in this batch :O")
         return {'rmse': 0, 'r2': 0, 'corr': 0, 'mae': 0, 'mse': 0, 'mape': 0}
-    # if np.any(Y == 0):
-    #     print("Y was 0")
-    #     print(Y)
 
     metrics = {}
     # RMSE
@@ -72,8 +66,6 @@ def loss_fn(pred, Y, mode="logcosh"):
     not_na = ~torch.isnan(Y)
     pred = pred[not_na]
     Y = Y[not_na]
-    # if Y.shape[0] < 1:
-    #     return torch.tensor(0)
 
     if mode == "huber":
         # huber loss
@@ -119,12 +111,6 @@ def test_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y,
     elif mode == "Test":
         year = args.test_year
 
-    # X, Y, counties = year_XY[year]
-    # year_avg_Y = (Y[~torch.isnan(Y)].mean() - args.means) / args.stds
-    #     # If there are missing labels in the Y sequence that's being passed to
-    #     # the RNN, substitute the average value across the previous 4 years.
-    #     X, Y, counties = year_XY[year]
-    #     Y = Y[:, :-1, :]  # Exclude current year, since the model should not receive info about the current year's labels as input
 
     with torch.no_grad():
         for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):

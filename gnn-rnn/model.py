@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import dgl
 import dgl.nn.pytorch as dglnn
+from transformer import Customformer
+import tltorch
 
 class CNN(nn.Module):
     def __init__(self, args):
@@ -143,6 +145,7 @@ class SingleYearRNN(nn.Module):
         self.num_weather_vars = args.num_weather_vars
         self.num_soil_vars = args.num_soil_vars
         self.soil_depths = args.soil_depths
+        self.model = args.encoder_type
 
         if args.encoder_type == "lstm":
             self.within_year_rnn = nn.LSTM(input_size=args.num_weather_vars+self.num_management_vars_this_crop,
@@ -156,6 +159,8 @@ class SingleYearRNN(nn.Module):
                                             num_layers=1,
                                             batch_first=True,
                                             dropout=1.-args.keep_prob)
+        elif args.encoder_type == "transformer":
+            self.within_year_rnn = Customformer(seg_len = 23)
         else:
             raise ValueError("If using SingleYearRNN, args.encoder_type must be `lstm` or `gru`.")
 
@@ -203,11 +208,14 @@ class SingleYearRNN(nn.Module):
             X_m = X[:, self.progress_indices]
             X_wm = torch.cat((X_w, X_m), dim=1)
 
-        # Reshape weather/management data into weekly time series,
-        # and pass through LSTM and fully-connected layers
         X_wm = X_wm.reshape(n_batch, self.num_weather_vars + self.num_management_vars_this_crop, self.time_intervals)
         X_wm = X_wm.permute((0, 2, 1))  # Permute dimensions to [batch_size, time_intervals, num_variables]
-        X_wm, (last_h, last_c) = self.within_year_rnn(X_wm)  # [batch, time_intervals, z_dim]
+        if self.model == "lstm":
+            X_wm, (last_h, last_c) = self.within_year_rnn(X_wm)  # [128, z_dim]
+        elif self.model == "gru":
+            X_wm, h_n = self.within_year_rnn(X_wm)
+        elif self.model == "transformer":
+            X_wm = self.within_year_rnn(X_wm)
         X_wm = self.wm_fc(X_wm[:, -1, :])  # [batch, 80]
 
         # Process soil data
@@ -226,7 +234,7 @@ class SAGE_RNN(nn.Module):
         super(SAGE_RNN, self).__init__()
         if args.encoder_type == "cnn":
             self.encoder = CNN(args)
-        elif args.encoder_type == "lstm" or args.encoder_type == "gru":
+        elif args.encoder_type == "lstm" or args.encoder_type == "gru" or args.encoder_type == "transformer":
             self.encoder = SingleYearRNN(args)
         else:
             raise ValueError("encoder_type must be `cnn`, `lstm`, or `gru`")
@@ -240,20 +248,20 @@ class SAGE_RNN(nn.Module):
         self.layers.append(dglnn.SAGEConv(self.n_hidden, self.n_hidden, args.aggregator_type))
         self.dropout = nn.Dropout(args.dropout)
 
-        # self.lstm = nn.LSTM(input_size=self.n_hidden, hidden_size=self.n_hidden, num_layers=1)  # TODO removed output_size from input_size
         self.lstm = nn.LSTM(input_size=self.n_hidden, hidden_size=self.n_hidden, num_layers=1, batch_first=True)
+        self.transformer = Customformer(seg_len = 23)
         self.regressor = nn.Sequential(
             nn.Linear(self.n_hidden, self.n_hidden//2),
+            #tltorch.factorized_layers.TRL(input_shape=self.n_hidden, output_shape=self.n_hidden//2, factorization='Tucker'),
             nn.ReLU(),
             nn.Linear(self.n_hidden//2, out_dim),
+            #tltorch.factorized_layers.TRL(input_shape=self.n_hidden//2, output_shape=out_dim, factorization='Tucker')
         )
 
     def forward(self, blocks, x, y):
         n_batch, n_seq, n_outputs = y.shape
         y_pad = torch.zeros(n_batch, n_seq+1, n_outputs).to(y.device)
         y_pad[:, 1:] = y
-        # print("x:", x.shape) # [675, 5, 6315]
-        # print("y_pad:", y_pad.shape) # [675, 5, 1]
         hs = []
         for i in range(n_seq+1):
             h = self.encoder(x[:, i, :]) # [675, 127]
@@ -271,8 +279,6 @@ class SAGE_RNN(nn.Module):
                     h = F.relu(h)
                     h = self.dropout(h)
             hs.append(h) # [n_batch, n_hidden+out_dim]
-            # hs.append(torch.cat((h, y_pad[:, i, :]), 1)) # [n_batch, n_hidden+out_dim]
-            # hs.append(torch.cat((h, y_pad[:, i:i+1]), 1)) # [n_batch, n_hidden+out_dim]
         hs = torch.stack(hs, dim=0) # [5, n_batch, n_hidden+out_dim]
         if torch.isnan(hs).any():
             print("Some hs were nan")
@@ -292,12 +298,7 @@ class SAGE_RNN(nn.Module):
             print("y")
             print(y)
             exit(1)
-        # print(out.shape) # [5, 64, 64]
-        # print(last_h.shape) # [1, 64, 64]
-        # print(last_c.shape) # [1, 64, 64]
-        # pred = self.regressor(out[-1]) # [64, 1]
 
-        # print("Out shape", out.shape)  # [n_batch, 5, 64]
         pred = self.regressor(out)  # [n_batch, 5, out_dim]
         # print("Pred shape", pred.shape)
         return pred

@@ -18,7 +18,6 @@ from baseline_utils import get_X_Y, build_path, get_git_revision_hash, compute_m
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import pandas as pd
-sys.path.append('../cnn-rnn')  # HACK
 import visualization_utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -34,7 +33,7 @@ best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 
 # pred, Y assumed to be 2D: [examples x outputs]
 def eval(pred, Y, args):
-    # Standardize based on mean/std of each output (crop type). NOTE - ignore this for now
+    # Standardize based on mean/std of each output (crop type).
     Y = (Y - args.means) / args.stds
     pred = (pred - args.means) / args.stds
     pred, Y = pred.detach().cpu().numpy(), Y.detach().cpu().numpy()
@@ -76,9 +75,6 @@ def eval(pred, Y, args):
 # pred, Y can be 2D or 3D, but the last dimension is the "output" dimension. We take the average loss across all outputs.
 def loss_fn(pred, Y, args, mode="logcosh"):
     loss = 0
-
-    # Y = torch.reshape(Y, (-1, Y.shape[-1]))
-    # pred = torch.reshape(pred, (-1, pred.shape[-1]))
 
     # Standardize based on mean/std of each output (crop type)
     Y = (Y - args.means) / args.stds
@@ -143,7 +139,6 @@ def train_epoch(args, model, device, train_loader, county_avg, optimizer, epoch,
 
         # Randomly mask out some data from the end of the last year in the 5-year sequence,
         # to force model to learn how to make early predictions
-        # X = mask_end(X, args, args.train_week_start, args.time_intervals)
         X = mask_end(X, counties, county_avg, args, args.train_week_start, args.time_intervals, device)
         optimizer.zero_grad()
         predictions_std = model(X)
@@ -213,7 +208,6 @@ def val_epoch(args, model, device, test_loader, county_avg, epoch, mode="Val", w
         X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)
 
         # To simulate early prediction, mask out data starting from the specified "validation_week"
-        # X = mask_end(X, args, args.validation_week, args.validation_week)
         X = mask_end(X, counties, county_avg, args, args.validation_week, args.validation_week, device)
 
         predictions_std = model(X)

@@ -19,8 +19,6 @@ import matplotlib.pyplot as plt
 from utils import get_X_Y, build_path, get_git_revision_hash, mask_end
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
-sys.path.append('../cnn-rnn')  # HACK
-import visualization_utils
 
 import dgl
 import scipy.sparse as sp
@@ -50,9 +48,6 @@ def eval(pred, Y, args):
     if Y.shape[0] < 2:
         print("Not enough valid labels in this batch :O")
         return {'rmse': 0, 'r2': 0, 'corr': 0, 'mae': 0, 'mse': 0, 'mape': 0}
-    # if np.any(Y == 0):
-    #     print("Y was 0")
-    #     print(Y)
 
     metrics = {}
     # RMSE
@@ -75,21 +70,16 @@ def eval(pred, Y, args):
 
 # pred, Y can be 2D or 3D, but the last dimension is the "output" dimension. We take the average loss across all outputs.
 def loss_fn(pred, Y, args, mode="logcosh"):
-    # Remove entries where Y is NA
-    # print("Loss fn", pred.shape, Y.shape)
     Y = torch.reshape(Y, (-1, Y.shape[-1]))
     pred = torch.reshape(pred, (-1, pred.shape[-1]))
     not_na = ~torch.isnan(Y)
     pred = pred[not_na]
     Y = Y[not_na]
-    # if Y.shape[0] < 1:
-    #     return torch.tensor(0)
 
     # Standardize based on mean/std of each output (crop type)
     Y = (Y - args.means) / args.stds
     pred = (pred - args.means) / args.stds
 
-    # TODO Compute loss for each output
     if mode == "huber":
         # huber loss
         loss = huber_fn(pred, Y)
@@ -113,6 +103,9 @@ def update_metrics(rmse, r2, corr, mode):
 
 def load_subtensor(year_XY, year, in_nodes, out_nodes, device):
     X, Y, counties = year_XY[year]
+    X = X.to(device)
+    Y = Y.to(device)
+    counties = counties.to(device)
     batch_inputs = X[in_nodes].float().to(device)
     batch_labels = Y[out_nodes].float().to(device)
     batch_counties = counties[out_nodes].int().to(device)
@@ -146,46 +139,9 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
                 continue
             batch_labels_std = (batch_labels - args.means) / args.stds
 
-            # Randomly mask out some data from the end of the last year in the 5-year sequence,
-            # to force model to learn how to make early predictions
-            # batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
-            # batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.train_week_start, args.time_intervals, device)
-
-            # # If labels are missing in the INPUT to the model (batch_labels_std),
-            # # replace them with the average for that year
-            # seq_years = batch_labels_std.shape[1]
-            # for i in range(seq_years - 1):  # Exclude current year
-            #     for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
-            #         year_i = (year - seq_years + 1) + i
-            #         missing_indices = torch.isnan(batch_labels_std[:, i, j])
-            #         batch_labels_std[missing_indices, i, j] = (year_avg_Y[year_i][j] - args.means) / args.stds
-
-            # # print("Batch inputs", batch_inputs.shape)
-            # # print("Batch labels", batch_labels_std.shape)
-            # indices_with_nan_labels = torch.isnan(batch_labels_std).any(dim=1).squeeze()
-            
-            # batch_labels_std[torch.isnan(batch_labels_std)] = args.means[0]  # year_avg_Y
-
-
-
-            # # Quick sanity checking
-            # visualization_utils.sanity_check_input(batch_inputs, batch_input_counties, year, args, X_mean, X_std)
-            # for i in range(5):
-            #     print(str(year) + ", county " + str(batch_counties[i]) + ": yield = " + str(batch_labels[i, -1].item()))
-            # exit(0)
-
-            #print(batch_inputs.shape, batch_labels.shape) # [711, 5, 431] [64, 5]
             blocks = [block.int().to(device) for block in blocks]
             batch_pred_std = model(blocks, batch_inputs, batch_labels_std[:, :-1]) #.squeeze(-1)
             batch_pred = batch_pred_std * args.stds + args.means
-
-            # if torch.isnan(batch_pred).any():
-            #     print("Counties with nan")
-            #     print(counties[np.isnan(batch_pred.squeeze())])
-            #     print("Corresponding input")
-            #     print(year_XY[year][np.isnan(batch_pred.squeeze())])
-
-            # loss = loss_fn(batch_pred, batch_labels[:, -1])
 
             loss = loss_fn(batch_pred[:, :args.length-1, :], batch_labels[:, :args.length-1, :], args) * args.c1 + \
                    loss_fn(batch_pred[:, -1, :], batch_labels[:, -1, :], args) * args.c2
@@ -256,31 +212,11 @@ def val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, 
     elif mode == "Test":
         year = args.test_year
 
-    # X, Y, counties = year_XY[year]
-    # year_avg_Y = (Y[~torch.isnan(Y)].mean() - args.means) / args.stds
-    #     # If there are missing labels in the Y sequence that's being passed to
-    #     # the RNN, substitute the average value across the previous 4 years.
-    #     X, Y, counties = year_XY[year]
-    #     Y = Y[:, :-1, :]  # Exclude current year, since the model should not receive info about the current year's labels as input
-
     with torch.no_grad():
         for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
 
-            # To simulate early prediction, mask out data starting from the specified "validation_week"
-            # batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
-            # batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.validation_week, args.validation_week, device)
-
             batch_labels_std = (batch_labels - args.means) / args.stds
-
-            # # If labels are missing in the INPUT to the model (batch_labels_std),
-            # # replace them with the average for that year
-            # seq_years = batch_labels_std.shape[1]
-            # for i in range(seq_years - 1):  # Exclude current year
-            #     for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
-            #         year_i = (year - seq_years + 1) + i
-            #         missing_indices = torch.isnan(batch_labels_std[:, i, j])
-            #         batch_labels_std[missing_indices, i, j] = (year_avg_Y[year_i][j] - args.means) / args.stds
 
             blocks = [block.int().to(device) for block in blocks]
 
@@ -439,13 +375,6 @@ def train(args):
     in_dim = year_XY[2000][0].shape[-1]
     out_dim = 1
     model = SAGE_RNN(args, in_dim, out_dim).to(device)
-    # model.load_state_dict(torch.load(args.checkpoint_path, map_location=device))
-    # print("Loaded state dict")
-
-    # model.load_state_dict(torch.load(os.path.join(model_dir, args.model_filename), map_location=device))
-
-    #log the learning rate 
-    #writer.add_scalar('learning_rate', args.learning_rate)
 
     #use the Adam optimizer 
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)  #1e-5)
@@ -502,11 +431,6 @@ def train(args):
             train_results.to_csv(os.path.join(results_dir, "train_results.csv"), index=False)
             val_results.to_csv(os.path.join(results_dir, "val_results.csv"), index=False)
             test_results.to_csv(os.path.join(results_dir, "test_results.csv"), index=False)
-
-            # Plot results
-            # visualization_utils.plot_true_vs_predicted(train_results[train_results["year"] == 1986], args.output_names, "1986_train", results_dir)
-            visualization_utils.plot_true_vs_predicted(val_results, args.output_names, str(args.test_year - 1) + "_val", results_dir)
-            visualization_utils.plot_true_vs_predicted(test_results, args.output_names, str(args.test_year) + "_test", results_dir)
 
             # Record Git commit and command used, along with current metrics
             with open(os.path.join(results_dir, "summary_current.txt"), 'w') as f:

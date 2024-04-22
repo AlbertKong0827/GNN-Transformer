@@ -160,6 +160,8 @@ class SingleYearRNN(nn.Module):
                                             num_layers=1,
                                             batch_first=True,
                                             dropout=1.-args.keep_prob)
+        elif args.encoder_type == "transformer":
+            self.within_year_rnn = Customformer(seg_len = 23)
         else:
             raise ValueError("If using SingleYearRNN, args.model must be `lstm` or `gru`.")
 
@@ -222,6 +224,8 @@ class SingleYearRNN(nn.Module):
             X_wm, (last_h, last_c) = self.within_year_rnn(X_wm)  # [128, z_dim]
         elif self.model == "gru":
             X_wm, h_n = self.within_year_rnn(X_wm)
+        elif self.model == "transformer":
+            X_wm = self.within_year_rnn(X_wm)
         X_wm = self.wm_fc(X_wm[:, -1, :])  # [128, 80]
 
         # Process soil data
