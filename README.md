@@ -1,6 +1,6 @@
 # A GNN-RNN Approach for Harnessing Geospatial and Temporal Information: Application to Crop Yield Prediction
 
-<div align=center><img src="figs/gnn_rnn.png" width="85%"></div>
+<div align=center><img src="figs/gt_structure.jpeg" width="85%"></div>
 
 This codebase is the implementation of the [GNN-RNN](https://arxiv.org/pdf/2111.08900.pdf) model (AAAI 2022) for crop yield prediction in the US. GNN-RNN is the first machine learning method that embeds geographical knowledge in crop yield prediction and predicts crop yields at the county level nationwide.
 
